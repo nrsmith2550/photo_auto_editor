@@ -6,6 +6,7 @@ A browser-based batch editor for event photographers. Drop in a set of photos, p
 
 ## Features
 
+- **RAW support:** Canon (CR2, CR3), Nikon (NEF), Sony (ARW), Fujifilm (RAF), DNG, Olympus, Panasonic, Pentax and more, decoded in the browser with LibRaw. JPEG, PNG and WebP work too.
 - **7 event styles:** Wedding: Light & Airy, Wedding: Warm Film, Corporate & Headshots, Party & Nightlife, Outdoor Golden Hour, Classic B&W, Natural. A strength slider sets how strongly each one is applied.
 - **Auto-correction:** white balance, exposure and levels are fixed before the style is applied, so shots from mixed lighting come out consistent.
 - **Portrait retouching:** edge-aware skin smoothing that keeps eyes, lashes and hair sharp.
@@ -18,10 +19,21 @@ Everything runs in your browser. Photos are never uploaded anywhere.
 
 ## Limits
 
-- Accepts JPEG, PNG and WebP only. Export RAW or HEIC files to JPEG first.
+- HEIC files aren't supported yet.
+- RAW files are processed in 8-bit with the camera's white balance as the starting point. That suits event work, but heavy exposure recovery has less headroom than in Lightroom.
+- A full-size RAW export takes about 3–5 seconds per photo. Exports at 2048 px take under a second.
 - EXIF metadata isn't copied to the exported files.
 - Skin smoothing works by color, so warm wood, sand or orange walls can get slightly softened. Lower the Skin smoothing slider on those shots.
 
 ## Running locally
 
-Open `index.html` in Chrome, Edge, Firefox or Safari. There's no build step and nothing to install.
+There's no build step. JPEGs work if you just open `index.html`, but RAW decoding loads a Web Worker, which browsers block for files opened straight from disk. To test RAW locally, serve the folder:
+
+```bash
+python3 -m http.server 8000
+# then open http://localhost:8000
+```
+
+## Third-party code
+
+RAW decoding uses LibRaw compiled to WebAssembly. See [`lib/libraw/NOTICE.md`](lib/libraw/NOTICE.md) for licenses.

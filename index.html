@@ -107,6 +107,7 @@
   .thumb.on{border-color:var(--accent)}
   .thumb .dot{position:absolute;right:5px;top:5px;width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px #0008;display:none}
   .thumb.custom .dot{display:block}
+  .thumb .rawtag{position:absolute;left:5px;bottom:5px;font-size:9px;font-weight:700;letter-spacing:.06em;padding:1px 4px;border-radius:3px;background:#000b;color:#e9e6df;z-index:1}
   .thumb .st{position:absolute;inset:0;display:grid;place-items:center;font-size:11px;color:var(--muted);background:#0d0d0f}
   .thumb.ready .st{display:none}
   .thumb.error .st{color:var(--danger)}
@@ -151,7 +152,7 @@
   <div class="top-mid" id="status"></div>
   <div class="top-actions">
     <label class="btn" for="fileInput" tabindex="0">Add photos</label>
-    <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple hidden>
+    <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp,.cr2,.cr3,.crw,.nef,.nrw,.arw,.srf,.sr2,.dng,.raf,.orf,.rw2,.pef,.srw,.3fr,.iiq,.rwl,.erf,.kdc,.mrw,.x3f" multiple hidden>
     <button class="btn primary" id="exportBtn" disabled>Export</button>
   </div>
 </header>
@@ -187,8 +188,8 @@
           <h1>Drop your event photos here</h1>
           <p>Pick a style, check a few frames, and export the whole set edited.</p>
           <label class="btn primary" for="fileInput">Choose photos</label>
-          <div class="steps"><span><b>1</b>Add JPEGs</span><span><b>2</b>Pick an event style</span><span><b>3</b>Export as ZIP</span></div>
-          <small>JPEG, PNG or WebP. Photos are processed in your browser and never uploaded.</small>
+          <div class="steps"><span><b>1</b>Add RAWs or JPEGs</span><span><b>2</b>Pick an event style</span><span><b>3</b>Export as ZIP</span></div>
+          <small>RAW (Canon, Nikon, Sony, Fujifilm, DNG and more), JPEG, PNG or WebP.<br>Photos are processed in your browser and never uploaded.</small>
         </div>
       </div>
       <div class="frame" id="frame" hidden>
@@ -498,6 +499,74 @@ function rasterize(src, maxDim){
 }
 const imageDataOf = (c) => ctx2d(c).getImageData(0, 0, c.width, c.height);
 
+/* ------------------------------------------------------------ RAW files */
+const RAW_RE = /\.(cr2|cr3|crw|nef|nrw|arw|srf|sr2|dng|raf|orf|rw2|pef|srw|3fr|iiq|rwl|erf|kdc|mrw|x3f)$/i;
+const isRawName = (n) => RAW_RE.test(n);
+let LibRawCls = null, libLoad = null;
+function loadLibRaw(){
+  if (!libLoad) libLoad = import("./lib/libraw/index.js").then(m => (LibRawCls = m.default)).catch(e => { libLoad = null; throw e; });
+  return libLoad;
+}
+// A few decoders run side by side, each in its own Web Worker, and are reused across files.
+const pool = { idle: [], count: 0, waiters: [], max: Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 4) >> 1)) };
+async function acquireRaw(){
+  await loadLibRaw();
+  if (pool.idle.length) return pool.idle.pop();
+  if (pool.count < pool.max){ pool.count++; return new LibRawCls(); }
+  return new Promise(r => pool.waiters.push(r));
+}
+function releaseRaw(r, broken){
+  if (broken){
+    try { r.dispose(); } catch(e){}
+    if (pool.waiters.length) pool.waiters.shift()(new LibRawCls()); else pool.count--;
+    return;
+  }
+  if (pool.waiters.length) pool.waiters.shift()(r); else pool.idle.push(r);
+}
+// Decodes a RAW file to a canvas. Half size (fast, no demosaic artifacts) is used whenever it's big enough.
+async function rawToCanvas(p, half){
+  const buf = new Uint8Array(await p.file.arrayBuffer());
+  const r = await acquireRaw();
+  let broken = false;
+  try {
+    await r.open(buf, { halfSize: half, useCameraWb: true, outputBps: 8, outputColor: 1, userQual: 3, highlight: 0 });
+    let im = null;
+    try { im = await r.imageData(); } catch(e){ im = null; }
+    if (im && im.data && im.width > 0 && im.height > 0 && im.colors >= 3 && im.data.length >= im.width*im.height*3){
+      const w = im.width, h = im.height, src = im.data, out = new ImageData(w, h), d = out.data, st = im.colors;
+      for (let i=0, j=0; i<d.length; i+=4, j+=st){ d[i]=src[j]; d[i+1]=src[j+1]; d[i+2]=src[j+2]; d[i+3]=255; }
+      const c = newCanvas(w, h); ctx2d(c).putImageData(out, 0, 0);
+      p.rawLong = Math.max(w, h) * (half ? 2 : 1);
+      return c;
+    }
+    // Camera not supported by the decoder: fall back to the JPEG preview embedded in the RAW file.
+    let th = null;
+    try { th = await r.thumbnailData(); } catch(e){ th = null; }
+    if (th && th.format === "jpeg" && th.data && th.data.length){
+      const b = await decode(new Blob([th.data], {type: "image/jpeg"}));
+      const [w, h] = dims(b), c = newCanvas(w, h); ctx2d(c).drawImage(b, 0, 0); release(b);
+      p.rawLong = Math.max(w, h); p.usedPreview = true;
+      return c;
+    }
+    throw new Error("RAW decode failed");
+  } catch(e){ broken = true; throw e; }
+  finally { releaseRaw(r, broken); }
+}
+// Single entry point for pixels: any file, scaled so its long edge is at most maxDim (0 = full size).
+async function loadCanvas(p, maxDim){
+  let c;
+  if (p.isRaw){
+    const half = maxDim > 0 && (!p.rawLong || p.rawLong/2 >= maxDim);
+    c = await rawToCanvas(p, half);
+  } else {
+    const b = await decode(p.file);
+    if (!maxDim) { const [w, h] = dims(b); c = newCanvas(w, h); ctx2d(c).drawImage(b, 0, 0); release(b); return c; }
+    c = rasterize(b, maxDim); release(b); return c;
+  }
+  if (maxDim && Math.max(c.width, c.height) > maxDim){ const s = rasterize(c, maxDim); c.width = c.height = 0; c = s; }
+  return c;
+}
+
 /* ---------------------------------------------------------------- state */
 const S = { photos: [], cur: -1, preset: "airy", strength: 1, auto: true, mode: "after", split: 50 };
 let idSeq = 0;
@@ -579,32 +648,38 @@ function choosePreset(id){
 /* --------------------------------------------------------------- photos */
 async function ingest(fileList){
   const files = [...fileList];
-  const ok = files.filter(f => /^image\/(jpeg|png|webp)$/i.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name));
+  const ok = files.filter(f => /^image\/(jpeg|png|webp)$/i.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name) || isRawName(f.name));
   const skipped = files.length - ok.length;
-  if (skipped) toast(`Skipped ${skipped} file${skipped>1?"s":""}: only JPEG, PNG and WebP work in this version (export RAW/HEIC to JPEG first).`, 5000);
+  if (skipped) toast(`Skipped ${skipped} file${skipped>1?"s":""}: supported files are RAW, JPEG, PNG and WebP (HEIC isn't supported yet).`, 5000);
   ok.sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric:true}));
+  if (ok.some(f => isRawName(f.name))){
+    loadLibRaw().catch(() => toast("RAW files need the hosted app (they can't be opened from a file on your computer). JPEGs still work.", 7000));
+  }
   for (const f of ok){
-    const p = { id: ++idSeq, file: f, name: f.name, src: null, an: null, adj: presetAdj(), custom: false, state: "queued" };
+    const p = { id: ++idSeq, file: f, name: f.name, isRaw: isRawName(f.name), src: null, an: null, adj: presetAdj(), custom: false, state: "queued" };
     p.el = document.createElement("button");
     p.el.className = "thumb"; p.el.title = f.name;
     p.canvas = newCanvas(140, 92);
     p.el.appendChild(p.canvas);
-    p.el.insertAdjacentHTML("beforeend", `<span class="dot"></span><span class="st">Loading…</span>`);
+    p.el.insertAdjacentHTML("beforeend", `${p.isRaw ? '<span class="rawtag">RAW</span>' : ""}<span class="dot"></span><span class="st">Loading…</span>`);
     p.el.onclick = () => select(S.photos.indexOf(p));
     S.photos.push(p); $("strip").appendChild(p.el);
   }
   if (ok.length){ $("empty").hidden = true; updateStatus(); loadQueue(); }
 }
 
-let loading = false;
-async function loadQueue(){
-  if (loading) return; loading = true;
+let loaders = 0;
+function loadQueue(){
+  // RAW decoding runs in parallel workers; JPEGs decode quickly one at a time.
+  const want = S.photos.some(q => q.state === "queued" && q.isRaw) ? pool.max : 1;
+  while (loaders < want){ loaders++; loadRunner().finally(() => { loaders--; }); }
+}
+async function loadRunner(){
   let p;
   while ((p = S.photos.find(q => q.state === "queued"))){
     p.state = "loading";
     try {
-      const b = await decode(p.file);
-      const c = rasterize(b, 320); release(b);
+      const c = await loadCanvas(p, 320);
       p.src = imageDataOf(c); c.width = c.height = 0;
       p.an = analyze(p.src);
       p.canvas.width = p.src.width; p.canvas.height = p.src.height;
@@ -617,7 +692,6 @@ async function loadQueue(){
     updateStatus();
     await new Promise(r => setTimeout(r, 0));
   }
-  loading = false;
 }
 
 function updateStatus(){
@@ -649,8 +723,7 @@ function step(d){
 const cache = new Map(); // id -> {full, draft}
 async function getPreview(p){
   if (cache.has(p.id)){ const v = cache.get(p.id); cache.delete(p.id); cache.set(p.id, v); return v; }
-  const b = await decode(p.file);
-  const fc = rasterize(b, 1600); release(b);
+  const fc = await loadCanvas(p, 1600);
   const full = imageDataOf(fc);
   const dc = rasterize(fc, 800); const draft = imageDataOf(dc);
   fc.width = fc.height = 0; dc.width = dc.height = 0;
@@ -811,8 +884,7 @@ async function runExport(){
     bar.style.width = (n/items.length*100)+"%";
     await new Promise(r => setTimeout(r, 0));
     try {
-      const b = await decode(p.file);
-      const c = rasterize(b, maxDim); release(b);
+      const c = await loadCanvas(p, maxDim);
       const x = ctx2d(c), img = x.getImageData(0, 0, c.width, c.height);
       processImage(img, p.an, eff(p), img);
       x.putImageData(img, 0, 0);
