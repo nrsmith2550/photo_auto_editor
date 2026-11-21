@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Event Photo Auto-Editor</title>
+<style>
+  :root{
+    --bg:#121214; --panel:#1a1a1d; --panel2:#202024; --line:#2c2c31; --text:#ecebe7; --muted:#9b9993;
+    --faint:#6d6b66; --accent:#d8a15a; --accent-ink:#1b1408; --view:#0c0c0e; --danger:#e07a6a;
+    --r:8px;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none !important}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+    font:13px/1.4 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  button{font:inherit;color:inherit;cursor:pointer}
+  body{display:grid;grid-template-rows:52px 1fr 118px;overflow:hidden}
+
+  /* top bar */
+  .top{display:flex;align-items:center;gap:16px;padding:0 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:.01em;font-size:14px}
+  .logo{width:22px;height:22px;border-radius:6px;background:conic-gradient(from 210deg,#f3d29b,#d8a15a,#8a5a2b,#f3d29b);box-shadow:inset 0 0 0 5px var(--panel),inset 0 0 0 6px #d8a15a55}
+  .top-mid{flex:1;color:var(--muted);font-size:12px;text-align:center}
+  .top-actions{display:flex;gap:8px}
+  .btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 14px;border-radius:var(--r);border:1px solid var(--line);background:var(--panel2);font-weight:500;user-select:none}
+  .btn:hover{border-color:#3d3d44;background:#26262b}
+  .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+  .btn.primary:hover{background:#e3ae69}
+  .btn:disabled{opacity:.4;cursor:default}
+
+  .app{display:grid;grid-template-columns:316px 1fr;min-height:0}
+
+  /* side panel */
+  .panel{background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;padding:6px 0 20px}
+  .panel section{padding:12px 16px 14px;border-bottom:1px solid var(--line)}
+  .panel section:last-child{border-bottom:0}
+  .panel h2{margin:4px 0 12px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .badge{font-size:10px;letter-spacing:.04em;text-transform:none;background:#d8a15a22;color:var(--accent);padding:1px 7px;border-radius:10px;font-weight:600}
+  .presets{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px}
+  .preset{text-align:left;padding:9px 10px 8px;border-radius:var(--r);border:1px solid var(--line);background:var(--panel2);min-height:54px}
+  .preset:hover{border-color:#40404a}
+  .preset b{display:block;font-weight:600;font-size:12.5px;margin-bottom:2px}
+  .preset span{color:var(--muted);font-size:11.5px}
+  .preset .sw{display:block;height:4px;border-radius:2px;margin-bottom:7px}
+  .preset.on{border-color:var(--accent);background:#2a2219}
+  .preset.on b{color:#f1c98f}
+
+  .row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:2px 8px;margin:0 0 9px}
+  .row label{color:#cfcdc7;font-size:12.5px;cursor:default}
+  .row .val{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px;min-width:54px;text-align:right}
+  .row.changed .val{color:var(--accent)}
+  .row input[type=range]{grid-column:1/-1}
+  .grp{font-size:11px;color:var(--faint);margin:14px 0 8px;font-weight:600;letter-spacing:.04em}
+  .grp:first-child{margin-top:0}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:18px;background:transparent;margin:0}
+  input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:linear-gradient(90deg,#3a3a40,#3a3a40)}
+  input[type=range]::-moz-range-track{height:3px;border-radius:2px;background:#3a3a40}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:#e9e6df;margin-top:-5px;border:0;box-shadow:0 1px 3px #0008}
+  input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:#e9e6df;border:0}
+  input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+  .toggle{display:flex;gap:9px;align-items:flex-start;color:#cfcdc7;font-size:12.5px;cursor:pointer;margin-top:4px}
+  .toggle input{accent-color:var(--accent);margin:2px 0 0}
+  .hint{color:var(--faint);font-size:11.5px;margin:8px 0 0}
+  .btnrow{display:flex;gap:6px;margin-top:14px}
+  .btnrow .btn{flex:1;justify-content:center;height:30px;font-size:12.5px}
+
+  /* viewer */
+  .viewer{position:relative;background:var(--view);display:grid;grid-template-rows:1fr 46px;min-width:0;min-height:0}
+  .stage{position:relative;display:flex;align-items:center;justify-content:center;min-height:0;overflow:hidden;padding:18px}
+  .frame{position:relative;box-shadow:0 10px 40px #000a;touch-action:none}
+  .frame canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .frame.split{cursor:ew-resize}
+  .divider{position:absolute;top:0;bottom:0;width:2px;background:#fff;margin-left:-1px;box-shadow:0 0 6px #0009;display:none;pointer-events:none}
+  .divider span{position:absolute;top:50%;left:50%;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;background:#fff;box-shadow:0 2px 8px #0008}
+  .divider span::before{content:"‹ ›";position:absolute;inset:0;display:grid;place-items:center;color:#222;font-weight:700;font-size:13px;letter-spacing:1px}
+  .frame.split .divider{display:block}
+  .tag{position:absolute;top:10px;padding:3px 8px;border-radius:4px;background:#000a;color:#fff;font-size:11px;font-weight:600;letter-spacing:.03em;display:none;pointer-events:none}
+  .tag-l{left:10px}.tag-r{right:10px}
+  .frame.split .tag{display:block}
+  .frame.orig .tag-l{display:block}
+  .busy{position:absolute;right:28px;top:26px;font-size:11px;color:#fff;background:#000a;padding:3px 8px;border-radius:4px;opacity:0;transition:opacity .15s;pointer-events:none}
+  .busy.on{opacity:1}
+  .viewbar{display:flex;align-items:center;gap:14px;padding:0 16px;border-top:1px solid var(--line);background:var(--panel)}
+  .seg{display:flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+  .seg button{background:transparent;border:0;padding:6px 12px;color:var(--muted);font-size:12.5px}
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button.on{background:#2d2d33;color:var(--text)}
+  .vname{flex:1;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+  .nav{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+  .nav button{width:28px;height:28px;border-radius:6px;border:1px solid var(--line);background:var(--panel2);font-size:15px;line-height:1}
+
+  .empty{position:absolute;inset:0;display:grid;place-items:center;padding:24px}
+  .drop{width:min(560px,100%);border:1.5px dashed #3a3a41;border-radius:16px;padding:44px 28px;text-align:center;background:#141417}
+  .drop h1{font-size:20px;margin:0 0 8px;font-weight:600;letter-spacing:-.01em}
+  .drop p{color:var(--muted);margin:0 0 22px;font-size:13.5px}
+  .drop .btn{height:38px;padding:0 20px;font-size:13.5px}
+  .drop small{display:block;color:var(--faint);margin-top:18px;font-size:12px}
+  .steps{display:flex;justify-content:center;gap:22px;margin:26px 0 0;color:var(--muted);font-size:12px}
+  .steps b{color:var(--accent);margin-right:5px}
+
+  /* filmstrip */
+  .strip{display:flex;gap:8px;align-items:center;padding:10px 14px;overflow-x:auto;overflow-y:hidden;background:var(--panel);border-top:1px solid var(--line)}
+  .strip:empty::before{content:"Your photos will appear here";color:var(--faint);font-size:12px;margin:auto}
+  .thumb{position:relative;flex:0 0 auto;height:92px;padding:0;border:2px solid transparent;border-radius:6px;background:#0d0d0f;overflow:hidden}
+  .thumb canvas{height:100%;display:block}
+  .thumb.on{border-color:var(--accent)}
+  .thumb .dot{position:absolute;right:5px;top:5px;width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px #0008;display:none}
+  .thumb.custom .dot{display:block}
+  .thumb .st{position:absolute;inset:0;display:grid;place-items:center;font-size:11px;color:var(--muted);background:#0d0d0f}
+  .thumb.ready .st{display:none}
+  .thumb.error .st{color:var(--danger)}
+
+  /* modal */
+  .modal{position:fixed;inset:0;background:#000b;display:grid;place-items:center;z-index:20}
+  .modal[hidden]{display:none}
+  .card{width:min(440px,calc(100% - 32px));background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 20px 18px;box-shadow:0 20px 60px #000c}
+  .card h3{margin:0 0 4px;font-size:16px}
+  .card .sub{color:var(--muted);margin:0 0 16px;font-size:12.5px}
+  .field{display:grid;grid-template-columns:110px 1fr;align-items:center;gap:10px;margin-bottom:10px}
+  .field>span{color:var(--muted)}
+  select{height:32px;border-radius:var(--r);border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:0 8px;font:inherit}
+  .bar{height:6px;border-radius:3px;background:#2a2a2f;overflow:hidden;margin:16px 0 8px}
+  .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+  .prog{color:var(--muted);font-size:12px;min-height:17px}
+  .parts{display:grid;gap:6px;margin-top:12px}
+  .part{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel2)}
+  .part .btn{height:28px}
+  .part.done .btn{background:transparent;border-color:var(--line);color:var(--muted)}
+  .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+  .note{color:var(--faint);font-size:11.5px;margin-top:12px}
+
+  .toast{position:fixed;left:50%;bottom:136px;transform:translate(-50%,10px);background:#2b2b31;border:1px solid #3a3a41;color:var(--text);padding:8px 14px;border-radius:8px;font-size:12.5px;opacity:0;pointer-events:none;transition:.2s;z-index:30;max-width:90vw}
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+  .veil{position:fixed;inset:0;background:#d8a15a1c;border:3px dashed var(--accent);display:none;place-items:center;font-size:18px;font-weight:600;color:#f1c98f;z-index:40;pointer-events:none}
+  .veil.on{display:grid}
+
+  @media (max-width:820px){
+    body{grid-template-rows:52px 1fr 100px;overflow:auto;height:auto;min-height:100%}
+    .app{grid-template-columns:1fr;grid-template-rows:60vh auto}
+    .viewer{order:-1}
+    .panel{border-right:0;border-top:1px solid var(--line)}
+    .thumb{height:76px}
+    .steps{flex-direction:column;gap:6px}
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo" aria-hidden="true"></span>Event Auto-Editor</div>
+  <div class="top-mid" id="status"></div>
+  <div class="top-actions">
+    <label class="btn" for="fileInput" tabindex="0">Add photos</label>
+    <input type="file" id="fileInput" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" multiple hidden>
+    <button class="btn primary" id="exportBtn" disabled>Export</button>
+  </div>
+</header>
+
+<div class="app">
+  <aside class="panel">
+    <section>
+      <h2>Event style</h2>
+      <div class="presets" id="presets"></div>
+      <div class="row" id="strengthRow">
+        <label for="strength">Preset strength</label><span class="val" id="strengthVal">100%</span>
+        <input type="range" id="strength" min="0" max="150" step="5" value="100">
+      </div>
+      <label class="toggle"><input type="checkbox" id="autoToggle" checked>
+        <span>Auto-correct white balance, exposure and levels before the style is applied</span></label>
+      <p class="hint">A style applies to every photo. Changes below apply to the selected photo only.</p>
+    </section>
+    <section>
+      <h2>This photo <span class="badge" id="customBadge" hidden>Adjusted</span></h2>
+      <div id="sliders"></div>
+      <div class="btnrow">
+        <button class="btn" id="resetPhoto">Reset to style</button>
+        <button class="btn" id="copyAll">Copy to all</button>
+      </div>
+      <p class="hint">Double-click a slider's name to reset it. ← → switch photos, \ shows the original.</p>
+    </section>
+  </aside>
+
+  <main class="viewer">
+    <div class="stage" id="stage">
+      <div class="empty" id="empty">
+        <div class="drop">
+          <h1>Drop your event photos here</h1>
+          <p>Pick a style, check a few frames, and export the whole set edited.</p>
+          <label class="btn primary" for="fileInput">Choose photos</label>
+          <div class="steps"><span><b>1</b>Add JPEGs</span><span><b>2</b>Pick an event style</span><span><b>3</b>Export as ZIP</span></div>
+          <small>JPEG, PNG or WebP. Photos are processed in your browser and never uploaded.</small>
+        </div>
+      </div>
+      <div class="frame" id="frame" hidden>
+        <canvas id="after"></canvas>
+        <canvas id="before"></canvas>
+        <div class="divider" id="divider"><span></span></div>
+        <div class="tag tag-l">Original</div><div class="tag tag-r">Edited</div>
+      </div>
+      <div class="busy" id="busy">Rendering…</div>
+    </div>
+    <div class="viewbar">
+      <div class="seg" id="viewMode">
+        <button data-m="after" class="on">Edited</button><button data-m="split">Before / after</button><button data-m="before">Original</button>
+      </div>
+      <div class="vname" id="photoName"></div>
+      <div class="nav"><button id="prev" aria-label="Previous photo">‹</button><span id="pos">0 / 0</span><button id="next" aria-label="Next photo">›</button></div>
+    </div>
+  </main>
+</div>
+
+<footer class="strip" id="strip"></footer>
+
+<div class="modal" id="exportModal" hidden>
+  <div class="card" role="dialog" aria-labelledby="exTitle">
+    <h3 id="exTitle">Export edited photos</h3>
+    <p class="sub" id="exSub"></p>
+    <div id="exOptions">
+      <label class="field"><span>Photos</span>
+        <select id="exScope"><option value="all">All photos</option><option value="current">Selected photo only</option></select></label>
+      <label class="field"><span>Size</span>
+        <select id="exSize"><option value="0">Full resolution</option><option value="4096">4096 px long edge</option><option value="2048" selected>2048 px long edge (web and gallery)</option><option value="1200">1200 px long edge (social)</option></select></label>
+      <label class="field"><span>JPEG quality</span>
+        <select id="exQuality"><option value="0.82">82 (smaller files)</option><option value="0.92" selected>92 (recommended)</option><option value="0.98">98 (maximum)</option></select></label>
+    </div>
+    <div id="exProgress" hidden>
+      <div class="bar"><i id="exBar"></i></div>
+      <div class="prog" id="exProg"></div>
+      <div class="parts" id="exParts"></div>
+    </div>
+    <p class="note">Exports are sRGB JPEGs. Camera metadata (EXIF) isn't copied in this version.</p>
+    <div class="actions">
+      <button class="btn" id="exCancel">Cancel</button>
+      <button class="btn primary" id="exStart">Start export</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="veil" id="veil">Drop photos to add them</div>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ presets */
+const KEYS = ["exposure","contrast","highlights","shadows","fade","warmth","tint","saturation","vibrance","split","clarity","skin","vignette"];
+const mk = (a) => Object.fromEntries(KEYS.map((k, i) => [k, a[i]]));
+//                       exp   con  hil  sha fade warm tint  sat  vib split clar skin vig
+const PRESETS = [
+  {id:"airy",   name:"Wedding: Light & Airy", sub:"Bright, soft, pastel",  sw:"linear-gradient(90deg,#f6efe6,#e9d8cf,#d9e2e4)", adj:mk([0.25,-12,-25, 30,  8,  8,  2, -12, 10,  0,  0, 40,  0])},
+  {id:"film",   name:"Wedding: Warm Film",    sub:"Golden, filmic",        sw:"linear-gradient(90deg,#2f4a4c,#b98a55,#f0cf96)", adj:mk([0.10,  6,-20, 15, 12, 16,  3,  -6,  8, 35,  0, 35, 15])},
+  {id:"corp",   name:"Corporate & Headshots", sub:"Clean, neutral, crisp", sw:"linear-gradient(90deg,#2b2f36,#8c939c,#eef0f2)", adj:mk([0.05,  8,-10, 12,  0,  0,  0,  -6,  4,  0, 15, 30,  0])},
+  {id:"party",  name:"Party & Nightlife",     sub:"Punchy, vivid",         sw:"linear-gradient(90deg,#3b145e,#d23f7a,#ffb347)", adj:mk([0.10, 22,-15, 18,  0, -4,  0,  10, 25,  0, 12, 20, 22])},
+  {id:"golden", name:"Outdoor Golden Hour",   sub:"Warm, glowing",         sw:"linear-gradient(90deg,#7a4a1e,#e39b47,#ffe1a6)", adj:mk([0.05,  4,-28, 22,  0, 18,  0,   0, 16,  0,  0, 35, 10])},
+  {id:"bw",     name:"Classic B&W",           sub:"Timeless monochrome",   sw:"linear-gradient(90deg,#111,#777,#eee)",          adj:mk([0.05, 20,-15, 10,  0,  0,  0,-100,  0,  0, 18, 25, 15])},
+  {id:"natural",name:"Natural",               sub:"Auto-correction only",  sw:"linear-gradient(90deg,#55606a,#a7b2a0,#d9c9b0)", adj:mk([0,     0,  0,  0,  0,  0,  0,   0,  0,  0,  0,  0,  0])},
+];
+const SLIDERS = [
+  {g:"Light"},
+  {k:"exposure",  l:"Exposure",       min:-2,   max:2,   step:0.05, f:v=>(v>0?"+":"")+v.toFixed(2)+" EV"},
+  {k:"contrast",  l:"Contrast",       min:-100, max:100, step:1},
+  {k:"highlights",l:"Highlights",     min:-100, max:100, step:1},
+  {k:"shadows",   l:"Shadows",        min:-100, max:100, step:1},
+  {k:"fade",      l:"Matte fade",     min:0,    max:100, step:1},
+  {g:"Color"},
+  {k:"warmth",    l:"Warmth",         min:-100, max:100, step:1},
+  {k:"tint",      l:"Tint",           min:-100, max:100, step:1},
+  {k:"saturation",l:"Saturation",     min:-100, max:100, step:1},
+  {k:"vibrance",  l:"Vibrance",       min:-100, max:100, step:1},
+  {k:"split",     l:"Split tone (teal / amber)", min:0, max:100, step:1},
+  {g:"Detail and portrait"},
+  {k:"clarity",   l:"Clarity",        min:0,    max:100, step:1},
+  {k:"skin",      l:"Skin smoothing", min:0,    max:100, step:1},
+  {k:"vignette",  l:"Vignette",       min:0,    max:100, step:1},
+];
+const SL = Object.fromEntries(SLIDERS.filter(s=>s.k).map(s=>[s.k,s]));
+
+/* ------------------------------------------------------------ image engine */
+const clamp = (x,a,b) => x<a?a:x>b?b:x;
+const sstep = (a,b,x) => { const t = clamp((x-a)/(b-a),0,1); return t*t*(3-2*t); };
+
+function pct(h, n, q){ const t = q*n; let a = 0; for (let i=0;i<256;i++){ a += h[i]; if (a >= t) return i; } return 255; }
+
+// Measures a small copy of the photo: gray-world white balance, black/white points, median brightness.
+function analyze(img){
+  const d = img.data, n = d.length/4;
+  const h = new Uint32Array(256);
+  for (let i=0;i<d.length;i+=4) h[(0.2126*d[i]+0.7152*d[i+1]+0.0722*d[i+2])|0]++;
+  const lo = pct(h,n,0.02), hi = pct(h,n,0.98);
+  let sr=0, sg=0, sb=0, c=0;
+  for (let i=0;i<d.length;i+=4){
+    const r=d[i], g=d[i+1], b=d[i+2], l=0.2126*r+0.7152*g+0.0722*b;
+    if (l>=lo && l<=hi && r<250 && g<250 && b<250){ sr+=r; sg+=g; sb+=b; c++; }
+  }
+  let wb = [1,1,1];
+  if (c > 50){
+    const mr=sr/c||1, mg=sg/c||1, mb=sb/c||1, gray=(mr+mg+mb)/3;
+    wb = [gray/mr, gray/mg, gray/mb].map(g => clamp(1+(g-1)*0.6, 0.75, 1.35));
+  }
+  const h2 = new Uint32Array(256);
+  for (let i=0;i<d.length;i+=4){
+    const r=Math.min(255,d[i]*wb[0]), g=Math.min(255,d[i+1]*wb[1]), b=Math.min(255,d[i+2]*wb[2]);
+    h2[(0.2126*r+0.7152*g+0.0722*b)|0]++;
+  }
+  return { wb, black: Math.min(pct(h2,n,0.005)/255, 0.06), white: Math.max(pct(h2,n,0.995)/255, 0.8), median: pct(h2,n,0.5)/255 };
+}
+
+// Every global (per-value) step folds into one lookup table per channel.
+function buildLUT(an, e){
+  const lut = [new Float32Array(256), new Float32Array(256), new Float32Array(256)];
+  const w = e.warmth/100, t = e.tint/100;
+  const ug = [1+w*0.10+t*0.03, 1-t*0.08, 1-w*0.10+t*0.03];
+  const span = Math.max(0.05, an.white-an.black);
+  let gA = 1;
+  if (e.auto){
+    const m = clamp((an.median-an.black)/span, 0.03, 0.97);
+    gA = clamp(Math.log(0.46)/Math.log(m), 0.65, 1.5);
+    gA = 1 + (gA-1)*0.85;
+  }
+  const ev = e.exposure, p = Math.pow(2, ev/2.2), c = e.contrast/100, hl = e.highlights/100, sh = e.shadows/100, fd = e.fade/100;
+  for (let ch=0; ch<3; ch++){
+    const g = (e.auto ? an.wb[ch] : 1) * ug[ch];
+    for (let i=0;i<256;i++){
+      let x = Math.min(1, i/255*g);
+      if (e.auto){ x = clamp((x-an.black)/span, 0, 1); x = Math.pow(x, gA); }
+      if (ev > 0) x = 1 - Math.pow(1-x, p); else if (ev < 0) x = x*p;
+      const sm = x*x*(3-2*x);
+      let y = x + c*0.6*(sm-x);
+      y += hl*0.10*Math.exp(-((x-0.82)*(x-0.82))/0.03);
+      y += sh*0.10*Math.exp(-((x-0.20)*(x-0.20))/0.03);
+      y = fd*0.10 + y*(1-fd*0.10);
+      lut[ch][i] = clamp(y, 0, 1);
+    }
+  }
+  return lut;
+}
+
+function boxBlur(a, w, h, r, it){
+  if (r < 1) return;
+  const t = new Float32Array(a.length), inv = 1/(2*r+1);
+  for (let n=0;n<it;n++){
+    for (let y=0;y<h;y++){
+      const row = y*w; let acc = 0;
+      for (let i=-r;i<=r;i++) acc += a[row+clamp(i,0,w-1)];
+      for (let x=0;x<w;x++){ t[row+x] = acc*inv; acc += a[row+Math.min(w-1,x+r+1)] - a[row+Math.max(0,x-r)]; }
+    }
+    for (let x=0;x<w;x++){
+      let acc = 0;
+      for (let i=-r;i<=r;i++) acc += t[clamp(i,0,h-1)*w+x];
+      for (let y=0;y<h;y++){ a[y*w+x] = acc*inv; acc += t[Math.min(h-1,y+r+1)*w+x] - t[Math.max(0,y-r)*w+x]; }
+    }
+  }
+}
+
+function axisMap(n, k, gn){
+  const i0 = new Int32Array(n), i1 = new Int32Array(n), f = new Float32Array(n);
+  for (let x=0;x<n;x++){
+    let g = (x+0.5)/k - 0.5; if (g < 0) g = 0;
+    let a = Math.floor(g); if (a > gn-1) a = gn-1;
+    i0[x] = a; i1[x] = Math.min(gn-1, a+1); f[x] = Math.min(1, g-a);
+  }
+  return {i0, i1, f};
+}
+
+// The full edit. src and dst may be the same ImageData (in-place export).
+function processImage(src, an, e, dst){
+  const W = src.width, H = src.height, s = src.data, o = dst.data;
+  const lut = buildLUT(an, e), L0 = lut[0], L1 = lut[1], L2 = lut[2];
+  const sat = e.saturation/100, vib = e.vibrance/100, sp = e.split/100*0.06;
+  const doColor = sat!==0 || vib!==0 || sp!==0;
+  const skin = e.skin/100, clar = e.clarity/100, vig = e.vignette/100;
+  const local = skin>0 || clar>0;
+  let R=0, G=0, B=0;
+  const color = (i) => {
+    let r = L0[s[i]], g = L1[s[i+1]], b = L2[s[i+2]];
+    if (doColor){
+      const l = 0.2126*r+0.7152*g+0.0722*b;
+      const mx = r>g?(r>b?r:b):(g>b?g:b), mn = r<g?(r<b?r:b):(g<b?g:b);
+      let f = (1+sat)*(1+vib*(1-Math.min(1,(mx-mn)*1.6))); if (f < 0) f = 0;
+      r = l+(r-l)*f; g = l+(g-l)*f; b = l+(b-l)*f;
+      if (sp > 0){ const sw=(1-l)*(1-l)*sp, hw=l*l*sp; r += -0.6*sw+hw; g += 0.25*sw+0.45*hw; b += 0.8*sw-0.7*hw; }
+    }
+    R = r; G = g; B = b;
+  };
+
+  // Local work (skin, clarity) runs on a ~800 px grid, so it costs the same on any file size.
+  let k=1, gw=0, gh=0, Rb, Gb, Bb, M, Lb, XM, YM;
+  if (local){
+    k = Math.max(1, Math.ceil(Math.max(W,H)/800));
+    gw = Math.ceil(W/k); gh = Math.ceil(H/k);
+    const gr = new Float32Array(gw*gh), gg = new Float32Array(gw*gh), gb = new Float32Array(gw*gh), cnt = new Float32Array(gw*gh);
+    for (let y=0;y<H;y++){
+      const grow = ((y/k)|0)*gw;
+      for (let x=0;x<W;x++){
+        color((y*W+x)*4); const gi = grow+((x/k)|0);
+        gr[gi]+=R; gg[gi]+=G; gb[gi]+=B; cnt[gi]++;
+      }
+    }
+    for (let i=0;i<gr.length;i++){ const c = cnt[i]||1; gr[i]/=c; gg[i]/=c; gb[i]/=c; }
+    const gmax = Math.max(gw,gh);
+    if (clar > 0){
+      Lb = new Float32Array(gw*gh);
+      for (let i=0;i<Lb.length;i++) Lb[i] = 0.2126*gr[i]+0.7152*gg[i]+0.0722*gb[i];
+      boxBlur(Lb, gw, gh, Math.max(2, Math.round(gmax/60)), 3);
+    }
+    if (skin > 0){
+      const rs = Math.max(1, Math.round(gmax/400));
+      Rb = gr.slice(); Gb = gg.slice(); Bb = gb.slice();
+      boxBlur(Rb,gw,gh,rs,3); boxBlur(Gb,gw,gh,rs,3); boxBlur(Bb,gw,gh,rs,3);
+      M = new Float32Array(gw*gh);
+      for (let i=0;i<M.length;i++){
+        const r=Rb[i]*255, g=Gb[i]*255, b=Bb[i]*255;
+        const Y = 0.299*r+0.587*g+0.114*b, Cb = 128-0.168736*r-0.331264*g+0.5*b, Cr = 128+0.5*r-0.418688*g-0.081312*b;
+        const d = Math.hypot((Cb-102)/25, (Cr-153)/20);
+        M[i] = clamp((1.15-d)/0.4, 0, 1) * sstep(35,75,Y) * (1-sstep(235,252,Y));
+      }
+      boxBlur(M, gw, gh, rs, 2);
+    }
+    XM = axisMap(W, k, gw); YM = axisMap(H, k, gh);
+  }
+
+  const cx = W/2, cy = H/2, invD = 1/Math.sqrt(cx*cx+cy*cy);
+  for (let y=0;y<H;y++){
+    let ra=0, rb=0, fy=0;
+    if (local){ ra = YM.i0[y]*gw; rb = YM.i1[y]*gw; fy = YM.f[y]; }
+    const dy2 = (y-cy)*(y-cy);
+    for (let x=0;x<W;x++){
+      const i = (y*W+x)*4;
+      color(i); let r=R, g=G, b=B;
+      if (local){
+        const x0 = XM.i0[x], x1 = XM.i1[x], fx = XM.f[x];
+        const w00=(1-fx)*(1-fy), w01=fx*(1-fy), w10=(1-fx)*fy, w11=fx*fy;
+        const a0=ra+x0, a1=ra+x1, b0=rb+x0, b1=rb+x1;
+        let m = 0;
+        if (skin > 0){
+          m = M[a0]*w00+M[a1]*w01+M[b0]*w10+M[b1]*w11;
+          if (m > 0.01){
+            const br = Rb[a0]*w00+Rb[a1]*w01+Rb[b0]*w10+Rb[b1]*w11;
+            const bg = Gb[a0]*w00+Gb[a1]*w01+Gb[b0]*w10+Gb[b1]*w11;
+            const bb = Bb[a0]*w00+Bb[a1]*w01+Bb[b0]*w10+Bb[b1]*w11;
+            const diff = Math.abs(r-br)+Math.abs(g-bg)+Math.abs(b-bb);
+            const bl = skin*0.75*m*(1-sstep(0.06,0.22,diff));
+            r += (br-r)*bl; g += (bg-g)*bl; b += (bb-b)*bl;
+          }
+        }
+        if (clar > 0){
+          const l = 0.2126*r+0.7152*g+0.0722*b;
+          const lb = Lb[a0]*w00+Lb[a1]*w01+Lb[b0]*w10+Lb[b1]*w11;
+          const wm = 1-(2*l-1)*(2*l-1);
+          const dl = clar*1.2*(l-lb)*wm*(1-0.7*m);
+          r += dl; g += dl; b += dl;
+        }
+      }
+      if (vig > 0){
+        const dx = x-cx, d = Math.sqrt(dx*dx+dy2)*invD;
+        const vf = 1-vig*0.45*sstep(0.35,1,d);
+        r *= vf; g *= vf; b *= vf;
+      }
+      o[i]   = r<=0?0:r>=1?255:(r*255+0.5)|0;
+      o[i+1] = g<=0?0:g>=1?255:(g*255+0.5)|0;
+      o[i+2] = b<=0?0:b>=1?255:(b*255+0.5)|0;
+      o[i+3] = 255;
+    }
+  }
+  return dst;
+}
+
+/* ------------------------------------------------------------- decoding */
+async function decode(file){
+  if ("createImageBitmap" in window){
+    try { return await createImageBitmap(file, {imageOrientation:"from-image"}); } catch(e){}
+  }
+  return await new Promise((res, rej) => {
+    const u = URL.createObjectURL(file), im = new Image();
+    im.onload = () => res(im);
+    im.onerror = () => { URL.revokeObjectURL(u); rej(new Error("decode")); };
+    im.src = u;
+  });
+}
+const dims = (b) => [b.naturalWidth || b.width, b.naturalHeight || b.height];
+function release(b){ try { if (b.close) b.close(); else if (b.src && b.src.startsWith("blob:")) URL.revokeObjectURL(b.src); } catch(e){} }
+function newCanvas(w, h){ const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
+function ctx2d(c){ const x = c.getContext("2d", {willReadFrequently:true}); x.imageSmoothingEnabled = true; x.imageSmoothingQuality = "high"; return x; }
+// Downscale in halving steps so large reductions stay sharp and alias-free.
+function rasterize(src, maxDim){
+  let [w, h] = dims(src);
+  const sc = maxDim ? Math.min(1, maxDim/Math.max(w,h)) : 1;
+  const tw = Math.max(1, Math.round(w*sc)), th = Math.max(1, Math.round(h*sc));
+  let cur = src;
+  while (w/2 > tw*1.01 && h/2 > th*1.01){
+    w = Math.round(w/2); h = Math.round(h/2);
+    const c = newCanvas(w, h); ctx2d(c).drawImage(cur, 0, 0, w, h);
+    if (cur !== src) cur.width = cur.height = 0;
+    cur = c;
+  }
+  const c = newCanvas(tw, th); ctx2d(c).drawImage(cur, 0, 0, tw, th);
+  if (cur !== src) cur.width = cur.height = 0;
+  return c;
+}
+const imageDataOf = (c) => ctx2d(c).getImageData(0, 0, c.width, c.height);
+
+/* ---------------------------------------------------------------- state */
+const S = { photos: [], cur: -1, preset: "airy", strength: 1, auto: true, mode: "after", split: 50 };
+let idSeq = 0;
+const $ = (id) => document.getElementById(id);
+const presetById = (id) => PRESETS.find(p => p.id === id);
+function presetAdj(){
+  const a = presetById(S.preset).adj, o = {};
+  for (const k of KEYS){ const v = a[k]*S.strength, sl = SL[k]; o[k] = clamp(k==="exposure" ? Math.round(v*100)/100 : Math.round(v), sl.min, sl.max); }
+  return o;
+}
+const eff = (p) => Object.assign({auto: S.auto}, p.adj);
+const curPhoto = () => S.photos[S.cur];
+
+/* ------------------------------------------------------------- UI build */
+function buildPresets(){
+  const box = $("presets");
+  for (const p of PRESETS){
+    const b = document.createElement("button");
+    b.className = "preset"; b.dataset.id = p.id;
+    b.innerHTML = `<i class="sw" style="background:${p.sw}"></i><b></b><span></span>`;
+    b.querySelector("b").textContent = p.name; b.querySelector("span").textContent = p.sub;
+    b.onclick = () => choosePreset(p.id);
+    box.appendChild(b);
+  }
+  syncPresetButtons();
+}
+function syncPresetButtons(){ for (const b of $("presets").children) b.classList.toggle("on", b.dataset.id === S.preset); }
+
+const sliderEls = {};
+function buildSliders(){
+  const box = $("sliders");
+  for (const s of SLIDERS){
+    if (s.g){ const d = document.createElement("div"); d.className = "grp"; d.textContent = s.g; box.appendChild(d); continue; }
+    const row = document.createElement("div"); row.className = "row";
+    const id = "sl_"+s.k;
+    row.innerHTML = `<label for="${id}"></label><span class="val"></span><input type="range" id="${id}" min="${s.min}" max="${s.max}" step="${s.step}">`;
+    row.querySelector("label").textContent = s.l;
+    const input = row.querySelector("input"), val = row.querySelector(".val");
+    input.addEventListener("input", () => onSlider(s.k, +input.value, false));
+    input.addEventListener("change", () => onSlider(s.k, +input.value, true));
+    row.querySelector("label").addEventListener("dblclick", () => { const p = curPhoto(); if (!p) return; onSlider(s.k, presetAdj()[s.k], true); });
+    sliderEls[s.k] = {row, input, val};
+    box.appendChild(row);
+  }
+}
+const fmt = (k, v) => SL[k].f ? SL[k].f(v) : (v>0 && SL[k].min<0 ? "+" : "") + v;
+function syncSliders(){
+  const p = curPhoto(), base = presetAdj();
+  for (const k of KEYS){
+    const el = sliderEls[k], v = p ? p.adj[k] : base[k];
+    el.input.value = v; el.val.textContent = fmt(k, v);
+    el.row.classList.toggle("changed", !!p && Math.abs(v-base[k]) > 1e-6);
+    el.input.disabled = !p;
+  }
+  $("customBadge").hidden = !(p && p.custom);
+  $("resetPhoto").disabled = $("copyAll").disabled = !p;
+}
+
+function onSlider(k, v, final){
+  const p = curPhoto(); if (!p) return;
+  p.adj[k] = v;
+  const base = presetAdj();
+  p.custom = KEYS.some(q => Math.abs(p.adj[q]-base[q]) > 1e-6);
+  const el = sliderEls[k]; el.val.textContent = fmt(k, v); el.input.value = v;
+  el.row.classList.toggle("changed", Math.abs(v-base[k]) > 1e-6);
+  $("customBadge").hidden = !p.custom;
+  p.el.classList.toggle("custom", p.custom);
+  requestRender(!final);
+  if (final) queueThumb(p);
+}
+
+function choosePreset(id){
+  S.preset = id; syncPresetButtons();
+  for (const p of S.photos){ p.adj = presetAdj(); p.custom = false; p.el.classList.remove("custom"); }
+  syncSliders(); requestRender(false); queueAllThumbs();
+  if (S.photos.length) toast(`${presetById(id).name} applied to ${S.photos.length} photo${S.photos.length>1?"s":""}`);
+}
+
+/* --------------------------------------------------------------- photos */
+async function ingest(fileList){
+  const files = [...fileList];
+  const ok = files.filter(f => /^image\/(jpeg|png|webp)$/i.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name));
+  const skipped = files.length - ok.length;
+  if (skipped) toast(`Skipped ${skipped} file${skipped>1?"s":""}: only JPEG, PNG and WebP work in this version (export RAW/HEIC to JPEG first).`, 5000);
+  ok.sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric:true}));
+  for (const f of ok){
+    const p = { id: ++idSeq, file: f, name: f.name, src: null, an: null, adj: presetAdj(), custom: false, state: "queued" };
+    p.el = document.createElement("button");
+    p.el.className = "thumb"; p.el.title = f.name;
+    p.canvas = newCanvas(140, 92);
+    p.el.appendChild(p.canvas);
+    p.el.insertAdjacentHTML("beforeend", `<span class="dot"></span><span class="st">Loading…</span>`);
+    p.el.onclick = () => select(S.photos.indexOf(p));
+    S.photos.push(p); $("strip").appendChild(p.el);
+  }
+  if (ok.length){ $("empty").hidden = true; updateStatus(); loadQueue(); }
+}
+
+let loading = false;
+async function loadQueue(){
+  if (loading) return; loading = true;
+  let p;
+  while ((p = S.photos.find(q => q.state === "queued"))){
+    p.state = "loading";
+    try {
+      const b = await decode(p.file);
+      const c = rasterize(b, 320); release(b);
+      p.src = imageDataOf(c); c.width = c.height = 0;
+      p.an = analyze(p.src);
+      p.canvas.width = p.src.width; p.canvas.height = p.src.height;
+      p.state = "ready"; p.el.classList.add("ready");
+      renderThumb(p);
+      if (S.cur < 0) select(S.photos.indexOf(p));
+    } catch(err){
+      p.state = "error"; p.el.classList.add("error"); p.el.querySelector(".st").textContent = "Can't read";
+    }
+    updateStatus();
+    await new Promise(r => setTimeout(r, 0));
+  }
+  loading = false;
+}
+
+function updateStatus(){
+  const n = S.photos.length, ld = S.photos.filter(p => p.state==="queued"||p.state==="loading").length, bad = S.photos.filter(p => p.state==="error").length;
+  $("status").textContent = n ? `${n} photo${n>1?"s":""}${ld?` · loading ${ld}`:""}${bad?` · ${bad} unreadable`:""}` : "";
+  $("exportBtn").disabled = !S.photos.some(p => p.state === "ready");
+  $("pos").textContent = n ? `${S.cur+1} / ${n}` : "0 / 0";
+}
+
+function select(i){
+  if (i < 0 || i >= S.photos.length) return;
+  const p = S.photos[i];
+  if (p.state !== "ready"){ toast(p.state === "error" ? "That file couldn't be read." : "Still loading that photo…"); return; }
+  if (S.cur >= 0 && S.photos[S.cur]) S.photos[S.cur].el.classList.remove("on");
+  S.cur = i; p.el.classList.add("on");
+  p.el.scrollIntoView({block:"nearest", inline:"nearest", behavior:"smooth"});
+  $("photoName").textContent = p.name;
+  updateStatus(); syncSliders();
+  shownBefore = null;
+  requestRender(false);
+}
+function step(d){
+  if (!S.photos.length) return;
+  let i = S.cur;
+  for (let n=0;n<S.photos.length;n++){ i += d; if (i < 0 || i >= S.photos.length) return; if (S.photos[i].state === "ready") return select(i); }
+}
+
+/* ------------------------------------------------------------ rendering */
+const cache = new Map(); // id -> {full, draft}
+async function getPreview(p){
+  if (cache.has(p.id)){ const v = cache.get(p.id); cache.delete(p.id); cache.set(p.id, v); return v; }
+  const b = await decode(p.file);
+  const fc = rasterize(b, 1600); release(b);
+  const full = imageDataOf(fc);
+  const dc = rasterize(fc, 800); const draft = imageDataOf(dc);
+  fc.width = fc.height = 0; dc.width = dc.height = 0;
+  const v = {full, draft};
+  cache.set(p.id, v);
+  while (cache.size > 6) cache.delete(cache.keys().next().value);
+  return v;
+}
+
+let renderPending = false, renderDraft = false, renderToken = 0, shownBefore = null;
+const scratch = newCanvas(1, 1);
+function requestRender(draft){
+  renderDraft = renderPending ? (renderDraft && draft) : draft;
+  if (renderPending) return;
+  renderPending = true;
+  requestAnimationFrame(() => { renderPending = false; renderCurrent(renderDraft); });
+}
+async function renderCurrent(draft){
+  const p = curPhoto(); if (!p || !p.an) return;
+  const tok = ++renderToken;
+  const busyT = setTimeout(() => $("busy").classList.add("on"), 120);
+  try {
+    const pv = await getPreview(p);
+    if (tok !== renderToken) return;
+    const frame = $("frame"), after = $("after"), before = $("before");
+    frame.hidden = false;
+    if (shownBefore !== p.id){
+      before.width = after.width = pv.full.width; before.height = after.height = pv.full.height;
+      ctx2d(before).putImageData(pv.full, 0, 0); shownBefore = p.id; fitFrame();
+    }
+    const srcImg = draft ? pv.draft : pv.full;
+    const out = new ImageData(srcImg.width, srcImg.height);
+    processImage(srcImg, p.an, eff(p), out);
+    if (tok !== renderToken) return;
+    if (draft){
+      scratch.width = out.width; scratch.height = out.height; ctx2d(scratch).putImageData(out, 0, 0);
+      ctx2d(after).drawImage(scratch, 0, 0, after.width, after.height);
+    } else ctx2d(after).putImageData(out, 0, 0);
+  } catch(e){ toast("Couldn't render this photo."); }
+  finally { clearTimeout(busyT); if (tok === renderToken) $("busy").classList.remove("on"); }
+}
+
+function fitFrame(){
+  const after = $("after"), stage = $("stage"), frame = $("frame");
+  if (!after.width || frame.hidden) return;
+  const cw = stage.clientWidth-36, ch = stage.clientHeight-36, a = after.width/after.height;
+  let w = Math.min(cw, ch*a), h = w/a;
+  frame.style.width = Math.max(1,Math.floor(w))+"px"; frame.style.height = Math.max(1,Math.floor(h))+"px";
+}
+window.addEventListener("resize", fitFrame);
+
+function applyMode(){
+  const frame = $("frame"), before = $("before");
+  frame.classList.toggle("split", S.mode === "split");
+  frame.classList.toggle("orig", S.mode === "before");
+  before.style.display = S.mode === "after" ? "none" : "block";
+  before.style.clipPath = S.mode === "split" ? `inset(0 ${100-S.split}% 0 0)` : "none";
+  $("divider").style.left = S.split+"%";
+  for (const b of $("viewMode").children) b.classList.toggle("on", b.dataset.m === S.mode);
+}
+
+// Thumbnails show the edited result too.
+const thumbQ = new Set(); let thumbRunning = false;
+function renderThumb(p){
+  if (!p.src) return;
+  const out = new ImageData(p.src.width, p.src.height);
+  processImage(p.src, p.an, eff(p), out);
+  p.canvas.getContext("2d").putImageData(out, 0, 0);
+}
+function queueThumb(p){ thumbQ.add(p); runThumbs(); }
+function queueAllThumbs(){ for (const p of S.photos) if (p.state === "ready") thumbQ.add(p); runThumbs(); }
+function runThumbs(){
+  if (thumbRunning) return; thumbRunning = true;
+  const tick = () => {
+    const t0 = performance.now();
+    for (const p of thumbQ){ thumbQ.delete(p); renderThumb(p); if (performance.now()-t0 > 24) break; }
+    if (thumbQ.size) setTimeout(tick, 0); else thumbRunning = false;
+  };
+  setTimeout(tick, 0);
+}
+
+/* --------------------------------------------------------------- export */
+const CRC = (() => { const t = new Uint32Array(256); for (let n=0;n<256;n++){ let c=n; for (let k=0;k<8;k++) c = c&1 ? 0xEDB88320^(c>>>1) : c>>>1; t[n]=c>>>0; } return t; })();
+function crc32(u8){ let c = 0xFFFFFFFF; for (let i=0;i<u8.length;i++) c = CRC[(c^u8[i])&255]^(c>>>8); return (c^0xFFFFFFFF)>>>0; }
+async function makeZip(files){
+  const enc = new TextEncoder(), parts = [], central = [];
+  const now = new Date();
+  const time = (now.getHours()<<11)|(now.getMinutes()<<5)|(now.getSeconds()>>1);
+  const date = ((now.getFullYear()-1980)<<9)|((now.getMonth()+1)<<5)|now.getDate();
+  let offset = 0;
+  for (const f of files){
+    const name = enc.encode(f.name), data = new Uint8Array(await f.blob.arrayBuffer()), crc = crc32(data), size = data.length;
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true); lh.setUint16(4,20,true); lh.setUint16(6,0x0800,true); lh.setUint16(8,0,true);
+    lh.setUint16(10,time,true); lh.setUint16(12,date,true); lh.setUint32(14,crc,true); lh.setUint32(18,size,true); lh.setUint32(22,size,true);
+    lh.setUint16(26,name.length,true); lh.setUint16(28,0,true);
+    parts.push(lh.buffer, name, f.blob);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true); ch.setUint16(4,20,true); ch.setUint16(6,20,true); ch.setUint16(8,0x0800,true); ch.setUint16(10,0,true);
+    ch.setUint16(12,time,true); ch.setUint16(14,date,true); ch.setUint32(16,crc,true); ch.setUint32(20,size,true); ch.setUint32(24,size,true);
+    ch.setUint16(28,name.length,true); ch.setUint32(42,offset,true);
+    central.push(ch.buffer, name);
+    offset += 30 + name.length + size;
+  }
+  const cdSize = central.reduce((a,b) => a + b.byteLength, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0,0x06054b50,true); end.setUint16(8,files.length,true); end.setUint16(10,files.length,true);
+  end.setUint32(12,cdSize,true); end.setUint32(16,offset,true);
+  return new Blob([...parts, ...central, end.buffer], {type:"application/zip"});
+}
+
+async function saveBlob(name, blob){
+  const cl = window.claude;
+  if (cl && typeof cl.use === "function"){
+    const d = await cl.use("downloads");
+    if (!d) throw {code:"unavailable"};
+    return await d.save({filename: name, data: blob});
+  }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  return {status:"saved"};
+}
+function saveError(e){
+  const c = e && e.code;
+  if (c === "declined") toast("Save cancelled.");
+  else if (c === "rate_limited") toast("Another save is waiting for confirmation. Try again in a moment.");
+  else if (c === "too_large") toast("That file is too large to save here. Try a smaller export size.");
+  else toast("Saving isn't available in this view. Open the page on claude.ai and try again.", 5000);
+}
+
+let exporting = false, exCancel = false;
+function openExport(){
+  const ready = S.photos.filter(p => p.state === "ready").length;
+  $("exSub").textContent = `${ready} photo${ready>1?"s":""} ready · style: ${presetById(S.preset).name}`;
+  $("exOptions").hidden = false; $("exProgress").hidden = true; $("exParts").innerHTML = "";
+  $("exStart").hidden = false; $("exStart").disabled = false; $("exCancel").textContent = "Cancel";
+  $("exportModal").hidden = false;
+}
+const outName = (n) => n.replace(/\.[^.]+$/, "") + "_edited.jpg";
+const mb = (b) => (b/1048576).toFixed(b > 104857600 ? 0 : 1) + " MB";
+
+async function runExport(){
+  if (exporting) return;
+  const scope = $("exScope").value, maxDim = +$("exSize").value, q = +$("exQuality").value;
+  const items = scope === "current" ? [curPhoto()].filter(Boolean) : S.photos.filter(p => p.state === "ready");
+  if (!items.length) return;
+  exporting = true; exCancel = false;
+  $("exOptions").hidden = true; $("exProgress").hidden = false; $("exStart").hidden = true; $("exCancel").textContent = "Stop";
+  const bar = $("exBar"), prog = $("exProg");
+  const parts = []; let part = [], bytes = 0; const used = new Set();
+  const t0 = performance.now();
+  for (let n=0; n<items.length; n++){
+    if (exCancel) break;
+    const p = items[n];
+    const left = n ? ((performance.now()-t0)/n*(items.length-n))/1000 : 0;
+    prog.textContent = `Editing ${n+1} of ${items.length}: ${p.name}` + (n>1 ? ` · about ${left<90?Math.ceil(left)+" s":Math.ceil(left/60)+" min"} left` : "");
+    bar.style.width = (n/items.length*100)+"%";
+    await new Promise(r => setTimeout(r, 0));
+    try {
+      const b = await decode(p.file);
+      const c = rasterize(b, maxDim); release(b);
+      const x = ctx2d(c), img = x.getImageData(0, 0, c.width, c.height);
+      processImage(img, p.an, eff(p), img);
+      x.putImageData(img, 0, 0);
+      const blob = await new Promise((res, rej) => c.toBlob(bl => bl ? res(bl) : rej(new Error("encode")), "image/jpeg", q));
+      c.width = c.height = 0;
+      let nm = outName(p.name), i = 2; while (used.has(nm.toLowerCase())) nm = outName(p.name).replace(/_edited\.jpg$/, `_edited-${i++}.jpg`);
+      used.add(nm.toLowerCase());
+      part.push({name: nm, blob}); bytes += blob.size;
+      if (part.length >= 60 || bytes > 600*1048576){ parts.push(part); part = []; bytes = 0; }
+    } catch(e){ toast(`Skipped ${p.name}: it couldn't be processed.`); }
+  }
+  if (part.length) parts.push(part);
+  exporting = false;
+  bar.style.width = "100%";
+  const total = parts.reduce((a,pt) => a+pt.length, 0);
+  prog.textContent = exCancel ? `Stopped. ${total} photo${total!==1?"s":""} edited.` : `Done: ${total} photo${total!==1?"s":""} edited. Save ${parts.length>1?"each part":"the file"} below.`;
+  $("exCancel").textContent = "Close";
+  const stamp = new Date().toISOString().slice(0,10);
+  const box = $("exParts"); box.innerHTML = "";
+  parts.forEach((pt, i) => {
+    const single = total === 1;
+    const name = single ? pt[0].name : `${presetById(S.preset).id}-edited-${stamp}${parts.length>1?`-part${i+1}`:""}.zip`;
+    const size = pt.reduce((a,f) => a+f.blob.size, 0);
+    const row = document.createElement("div"); row.className = "part";
+    row.innerHTML = `<span></span><button class="btn primary">Save</button>`;
+    row.querySelector("span").textContent = single ? `${name} · ${mb(size)}` : `${parts.length>1?`Part ${i+1}: `:""}${pt.length} photos · ${mb(size)}`;
+    const btn = row.querySelector("button");
+    btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = single ? "Saving…" : "Zipping…";
+      try {
+        const blob = single ? pt[0].blob : await makeZip(pt);
+        btn.textContent = "Confirm…";
+        await saveBlob(name, blob);
+        row.classList.add("done"); btn.textContent = "Saved";
+      } catch(e){ saveError(e); btn.disabled = false; btn.textContent = "Save"; }
+    };
+    box.appendChild(row);
+  });
+}
+
+/* --------------------------------------------------------------- toasts */
+let toastT;
+function toast(msg, ms=2600){ const t = $("toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), ms); }
+
+/* --------------------------------------------------------------- wiring */
+buildPresets(); buildSliders(); syncSliders(); applyMode(); updateStatus();
+
+$("fileInput").addEventListener("change", (e) => { ingest(e.target.files); e.target.value = ""; });
+document.querySelector('label[for="fileInput"].btn').addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " "){ e.preventDefault(); $("fileInput").click(); } });
+
+$("strength").addEventListener("input", (e) => {
+  S.strength = +e.target.value/100; $("strengthVal").textContent = e.target.value + "%";
+  for (const p of S.photos) if (!p.custom) p.adj = presetAdj();
+  syncSliders(); requestRender(true);
+});
+$("strength").addEventListener("change", () => { requestRender(false); queueAllThumbs(); });
+$("autoToggle").addEventListener("change", (e) => { S.auto = e.target.checked; requestRender(false); queueAllThumbs(); });
+
+$("resetPhoto").onclick = () => { const p = curPhoto(); if (!p) return; p.adj = presetAdj(); p.custom = false; p.el.classList.remove("custom"); syncSliders(); requestRender(false); queueThumb(p); };
+$("copyAll").onclick = () => {
+  const p = curPhoto(); if (!p) return;
+  for (const q of S.photos){ q.adj = {...p.adj}; q.custom = p.custom; q.el.classList.toggle("custom", p.custom); }
+  queueAllThumbs(); toast(`Settings copied to all ${S.photos.length} photos`);
+};
+
+for (const b of $("viewMode").children) b.onclick = () => { S.mode = b.dataset.m; applyMode(); };
+$("prev").onclick = () => step(-1); $("next").onclick = () => step(1);
+
+// Before/after divider
+(() => {
+  const frame = $("frame"); let drag = false;
+  const setPos = (e) => { const r = frame.getBoundingClientRect(); S.split = clamp((e.clientX-r.left)/r.width*100, 0, 100); applyMode(); };
+  frame.addEventListener("pointerdown", (e) => { if (S.mode !== "split") return; drag = true; frame.setPointerCapture(e.pointerId); setPos(e); });
+  frame.addEventListener("pointermove", (e) => { if (drag) setPos(e); });
+  frame.addEventListener("pointerup", () => { drag = false; });
+  frame.addEventListener("pointercancel", () => { drag = false; });
+})();
+
+// Keyboard
+let peekPrev = null;
+document.addEventListener("keydown", (e) => {
+  if (!$("exportModal").hidden){ if (e.key === "Escape" && !exporting) $("exportModal").hidden = true; return; }
+  const tag = e.target.tagName;
+  if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+  if (e.key === "ArrowRight"){ e.preventDefault(); step(1); }
+  else if (e.key === "ArrowLeft"){ e.preventDefault(); step(-1); }
+  else if (e.key === "\\" && !e.repeat && peekPrev === null){ peekPrev = S.mode; S.mode = "before"; applyMode(); }
+});
+document.addEventListener("keyup", (e) => { if (e.key === "\\" && peekPrev !== null){ S.mode = peekPrev; peekPrev = null; applyMode(); } });
+
+// Drag and drop anywhere
+let dragDepth = 0;
+const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes("Files");
+window.addEventListener("dragenter", (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; $("veil").classList.add("on"); });
+window.addEventListener("dragover", (e) => { if (hasFiles(e)) e.preventDefault(); });
+window.addEventListener("dragleave", () => { dragDepth = Math.max(0, dragDepth-1); if (!dragDepth) $("veil").classList.remove("on"); });
+window.addEventListener("drop", (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth = 0; $("veil").classList.remove("on"); ingest(e.dataTransfer.files); });
+
+// Export modal
+$("exportBtn").onclick = openExport;
+$("exStart").onclick = runExport;
+$("exCancel").onclick = () => { if (exporting){ exCancel = true; return; } $("exportModal").hidden = true; };
+</script>
+</body>
+</html>
