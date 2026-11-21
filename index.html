@@ -179,6 +179,14 @@
       </div>
       <p class="hint">Double-click a slider's name to reset it. ← → switch photos, \ shows the original.</p>
     </section>
+    <section>
+      <h2>Lightroom presets</h2>
+      <div class="btnrow" style="margin-top:0">
+        <button class="btn" id="lrOne">This photo's look</button>
+        <button class="btn" id="lrAll">All 7 styles</button>
+      </div>
+      <p class="hint">Saves .xmp presets for Lightroom Classic (Develop → Presets → + → Import Presets) or Lightroom (Edit → Presets → ⋯ → Import Presets). Lightroom's own tools differ from this app's, so results are close, not identical.</p>
+    </section>
   </aside>
 
   <main class="viewer">
@@ -925,6 +933,61 @@ async function runExport(){
   });
 }
 
+/* ---------------------------------------------------- Lightroom presets */
+const xmlEsc = (s) => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2,"0")).join("")).replace(/-/g,"").toUpperCase();
+// Maps this app's sliders onto the closest Lightroom (Process Version 2012+) settings.
+function lightroomXMP(name, a, auto){
+  const r = Math.round, sg = (v) => (v > 0 ? "+" : "") + v;
+  // Warmth and tint become a global color-grading tint, which works the same on RAW and JPEG files.
+  const pol = (deg, m) => [Math.cos(deg*Math.PI/180)*m, Math.sin(deg*Math.PI/180)*m];
+  const [x1, y1] = pol(a.warmth >= 0 ? 45 : 225, Math.abs(a.warmth));
+  const [x2, y2] = pol(a.tint >= 0 ? 300 : 120, Math.abs(a.tint)*0.8);
+  const gSat = Math.min(100, r(Math.hypot(x1+x2, y1+y2)*0.3));
+  const gHue = gSat ? r((Math.atan2(y1+y2, x1+x2)*180/Math.PI + 360) % 360) : 0;
+  const fadeY = r(a.fade/100*0.10*255), bw = a.saturation <= -100, split = r(a.split*0.4);
+  const attrs = {
+    PresetType: "Normal", Cluster: "", UUID: uuid(), SupportsAmount: "False", SupportsColor: "True", SupportsMonochrome: "True",
+    SupportsHighDynamicRange: "True", SupportsNormalDynamicRange: "True", SupportsSceneReferred: "True", SupportsOutputReferred: "True",
+    CameraModelRestriction: "", Copyright: "", ContactInfo: "", Version: "15.0", ProcessVersion: "11.0",
+    ...(auto ? {WhiteBalance: "Auto"} : {}),
+    Exposure2012: (a.exposure > 0 ? "+" : "") + a.exposure.toFixed(2),
+    Contrast2012: sg(r(a.contrast)), Highlights2012: sg(r(a.highlights)), Shadows2012: sg(r(a.shadows)),
+    Texture: sg(-r(a.skin*0.35)), Clarity2012: sg(r(a.clarity)),
+    Vibrance: sg(r(a.vibrance)), Saturation: bw ? "0" : sg(r(a.saturation)), ConvertToGrayscale: bw ? "True" : "False",
+    SplitToningShadowHue: split ? "185" : "0", SplitToningShadowSaturation: String(split),
+    SplitToningHighlightHue: split ? "40" : "0", SplitToningHighlightSaturation: String(split), SplitToningBalance: "0",
+    ColorGradeGlobalHue: String(gHue), ColorGradeGlobalSat: String(gSat), ColorGradeBlending: "50",
+    PostCropVignetteAmount: sg(-r(a.vignette*0.45)), PostCropVignetteMidpoint: "50", PostCropVignetteFeather: "50",
+    PostCropVignetteRoundness: "0", PostCropVignetteStyle: "1", PostCropVignetteHighlightContrast: "0",
+    ToneCurveName2012: fadeY ? "Custom" : "Linear",
+    HasSettings: "True",
+  };
+  const alt = (tag, v) => `   <crs:${tag}>\n    <rdf:Alt>\n     <rdf:li xml:lang="x-default">${xmlEsc(v)}</rdf:li>\n    </rdf:Alt>\n   </crs:${tag}>\n`;
+  const seq = (tag, pts) => `   <crs:${tag}>\n    <rdf:Seq>\n${pts.map(p => `     <rdf:li>${p}</rdf:li>\n`).join("")}    </rdf:Seq>\n   </crs:${tag}>\n`;
+  const lin = ["0, 0", "255, 255"];
+  return `<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 7.0-c000 1.000000, 0000/00/00-00:00:00        ">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+${Object.entries(attrs).map(([k, v]) => `   crs:${k}="${xmlEsc(v)}"`).join("\n")}>
+${alt("Name", name)}${alt("ShortName", "")}${alt("SortName", "")}${alt("Group", "Event Auto-Editor")}${alt("Description", "Made with Event Auto-Editor")}${seq("ToneCurvePV2012", fadeY ? [`0, ${fadeY}`, "255, 255"] : lin)}${seq("ToneCurvePV2012Red", lin)}${seq("ToneCurvePV2012Green", lin)}${seq("ToneCurvePV2012Blue", lin)}  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+`;
+}
+const safeFile = (s) => s.replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim();
+// .xmp isn't on the Claude viewer's download list, so there the presets go in a .zip (Lightroom imports .zip too).
+async function saveXMPs(items, zipName){
+  const inClaude = !!(window.claude && typeof window.claude.use === "function");
+  const files = items.map(it => ({ name: safeFile(it.name) + ".xmp", blob: new Blob([lightroomXMP(it.name, it.adj, S.auto)], {type: "application/rdf+xml"}) }));
+  try {
+    if (files.length === 1 && !inClaude) await saveBlob(files[0].name, files[0].blob);
+    else await saveBlob(zipName, await makeZip(files));
+    toast(files.length === 1 ? "Lightroom preset saved." : `${files.length} Lightroom presets saved.`);
+  } catch(e){ saveError(e); }
+}
+
 /* --------------------------------------------------------------- toasts */
 let toastT;
 function toast(msg, ms=2600){ const t = $("toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), ms); }
@@ -982,6 +1045,21 @@ window.addEventListener("dragenter", (e) => { if (!hasFiles(e)) return; e.preven
 window.addEventListener("dragover", (e) => { if (hasFiles(e)) e.preventDefault(); });
 window.addEventListener("dragleave", () => { dragDepth = Math.max(0, dragDepth-1); if (!dragDepth) $("veil").classList.remove("on"); });
 window.addEventListener("drop", (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth = 0; $("veil").classList.remove("on"); ingest(e.dataTransfer.files); });
+
+// Lightroom presets
+$("lrOne").onclick = () => {
+  const p = curPhoto();
+  const base = presetById(S.preset).name;
+  const adj = p ? p.adj : presetAdj();
+  const name = p && p.custom ? `${base} (custom)` : base;
+  saveXMPs([{name, adj}], `${safeFile(name)} - Lightroom preset.zip`);
+};
+$("lrAll").onclick = () => {
+  const keep = S.preset, items = [];
+  for (const pr of PRESETS){ S.preset = pr.id; items.push({name: pr.name, adj: presetAdj()}); }
+  S.preset = keep;
+  saveXMPs(items, "Event Auto-Editor - Lightroom presets.zip");
+};
 
 // Export modal
 $("exportBtn").onclick = openExport;

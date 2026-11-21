@@ -11,6 +11,7 @@ A browser-based batch editor for event photographers. Drop in a set of photos, p
 - **Auto-correction:** white balance, exposure and levels are fixed before the style is applied, so shots from mixed lighting come out consistent.
 - **Portrait retouching:** edge-aware skin smoothing that keeps eyes, lashes and hair sharp.
 - **Per-photo control:** 13 sliders, a before/after comparison, and "copy to all".
+- **Lightroom presets:** save the selected photo's look, or all 7 styles, as `.xmp` presets for Lightroom Classic and Lightroom. They import into an "Event Auto-Editor" preset group. Lightroom's tools work differently, so the results are close, not identical: warmth and tint become a global color-grading tint, skin smoothing becomes negative Texture (which affects the whole photo), and white balance is set to Auto.
 - **Batch export:** full resolution or resized, at your choice of JPEG quality, downloaded as a ZIP.
 
 ## Privacy
